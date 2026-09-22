@@ -107,12 +107,20 @@ class SettingsActivity : AppCompatActivity() {
         judgeCard.addView(edit(prefs.judgeKey, "sk-...", password = true).also { judgeKeyEdit = it })
         judgeCard.addView(label("模型"))
         judgeCard.addView(judgeModelEdit)
+        judgeCard.addView(label("自定义请求头（可留空）"))
+        judgeCard.addView(headersEdit(prefs.judgeHeaders).also { judgeHeadersEdit = it })
+        judgeCard.addView(text(HINT_HEADERS, 11f, sub))
         val judgeResult = resultText()
         judgeCard.addView(cardBtn("测试判断") {
             val base = judgeBaseEdit.text.toString().trim()
             val key = judgeKeyEdit.text.toString().trim()
+            val headersTyped = judgeHeadersEdit.text.toString()
             val model = judgeModelEdit.text.toString().trim()
-            if (key.isBlank()) { judgeResult.text = "请先填密钥"; return@cardBtn }
+            // A custom header counts as a credential: opencode authenticates with
+            // x-opencode-session and sends no Bearer key at all.
+            if (key.isBlank() && Prefs.parseHeaders(headersTyped).isEmpty()) {
+                judgeResult.text = "请先填密钥（或自定义请求头）"; return@cardBtn
+            }
             judgeResult.text = "测试中…"
             // Provider follows the address when it is still a known preset host,
             // so a stale pill selection cannot send a TypeSafe path to OpenRouter.
@@ -129,6 +137,7 @@ class SettingsActivity : AppCompatActivity() {
                 judgeProvider = provider
                 judgeBaseUrl = base.ifBlank { defaultJudgeBase(provider) }
                 judgeKey = key
+                judgeHeaders = headersTyped
                 judgeModel = model.ifBlank { defaultJudgeModel(provider) }
             }
             worker.execute {
@@ -174,17 +183,24 @@ class SettingsActivity : AppCompatActivity() {
         replyCard.addView(edit(prefs.replyKey, "留空则用判断接口密钥", password = true).also { replyKeyEdit = it })
         replyCard.addView(label("模型"))
         replyCard.addView(replyModelEdit)
+        replyCard.addView(label("自定义请求头（可留空）"))
+        replyCard.addView(headersEdit(prefs.replyHeaders).also { replyHeadersEdit = it })
+        replyCard.addView(text(HINT_HEADERS, 11f, sub))
         val replyResult = resultText()
         replyCard.addView(cardBtn("测试回复") {
             val base = replyBaseEdit.text.toString().trim()
             val model = replyModelEdit.text.toString().trim()
             val probe = draftPrefs(SCRATCH_REPLY) {
                 judgeKey = judgeKeyEdit.text.toString().trim()
+                judgeHeaders = judgeHeadersEdit.text.toString()
                 replyBaseUrl = base.ifBlank { Prefs.DEFAULT_REPLY_BASE }
                 replyKey = replyKeyEdit.text.toString().trim()
                 replyModel = model.ifBlank { Prefs.DEFAULT_REPLY_MODEL }
+                replyHeaders = replyHeadersEdit.text.toString()
             }
-            if (probe.effectiveReplyKey().isBlank()) { replyResult.text = "请先填密钥（或填判断接口密钥）"; return@cardBtn }
+            if (probe.effectiveReplyKey().isBlank() && probe.effectiveReplyHeaders().isEmpty()) {
+                replyResult.text = "请先填密钥（或判断接口密钥 / 自定义请求头）"; return@cardBtn
+            }
             replyResult.text = "测试中…"
             worker.execute {
                 val t0 = System.currentTimeMillis()
@@ -227,6 +243,9 @@ class SettingsActivity : AppCompatActivity() {
         visionCard.addView(edit(prefs.visionKey, "留空则用回复接口密钥", password = true).also { visionKeyEdit = it })
         visionCard.addView(label("模型"))
         visionCard.addView(visionModelEdit)
+        visionCard.addView(label("自定义请求头（可留空）"))
+        visionCard.addView(headersEdit(prefs.visionHeaders).also { visionHeadersEdit = it })
+        visionCard.addView(text(HINT_HEADERS, 11f, sub))
         val visionResult = resultText()
         visionCard.addView(cardBtn("测试视觉") {
             val visionBase = visionBaseEdit.text.toString().trim()
@@ -236,13 +255,17 @@ class SettingsActivity : AppCompatActivity() {
             }
             val probe = draftPrefs(SCRATCH_VISION) {
                 judgeKey = judgeKeyEdit.text.toString().trim()
+                judgeHeaders = judgeHeadersEdit.text.toString()
                 replyBaseUrl = replyBaseEdit.text.toString().trim().ifBlank { Prefs.DEFAULT_REPLY_BASE }
                 replyKey = replyKeyEdit.text.toString().trim()
                 visionBaseUrl = visionBase
                 visionKey = visionKeyEdit.text.toString().trim()
                 visionModel = visionModelEdit.text.toString().trim().ifBlank { Prefs.DEFAULT_VISION_MODEL }
+                visionHeaders = visionHeadersEdit.text.toString()
             }
-            if (probe.effectiveVisionKey().isBlank()) { visionResult.text = "请先填密钥（或填回复/判断接口密钥）"; return@cardBtn }
+            if (probe.effectiveVisionKey().isBlank() && probe.effectiveVisionHeaders().isEmpty()) {
+                visionResult.text = "请先填密钥（或回复/判断接口密钥 / 自定义请求头）"; return@cardBtn
+            }
             visionResult.text = "测试中…"
             worker.execute {
                 val t0 = System.currentTimeMillis()
@@ -359,6 +382,7 @@ class SettingsActivity : AppCompatActivity() {
                 else -> defaultJudgeBase(judgeProv)
             }
             prefs.judgeKey = judgeKeyEdit.text.toString()
+            prefs.judgeHeaders = judgeHeadersEdit.text.toString()
             prefs.judgeModel = when {
                 judgeModelTyped.isNotBlank() -> judgeModelTyped
                 judgeProv == Prefs.PROVIDER_CUSTOM -> ""
@@ -367,10 +391,12 @@ class SettingsActivity : AppCompatActivity() {
 
             prefs.replyBaseUrl = replyBaseEdit.text.toString().trim().ifBlank { Prefs.DEFAULT_REPLY_BASE }
             prefs.replyKey = replyKeyEdit.text.toString()
+            prefs.replyHeaders = replyHeadersEdit.text.toString()
             prefs.replyModel = replyModelEdit.text.toString().trim().ifBlank { Prefs.DEFAULT_REPLY_MODEL }
 
             prefs.visionBaseUrl = visionBaseEdit.text.toString().trim()
             prefs.visionKey = visionKeyEdit.text.toString()
+            prefs.visionHeaders = visionHeadersEdit.text.toString()
             prefs.visionModel = visionModelEdit.text.toString().trim().ifBlank { Prefs.DEFAULT_VISION_MODEL }
 
             prefs.relationship = relEdit.text.toString()   // blank stays blank, on purpose
@@ -393,6 +419,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var judgeKeyEdit: EditText
     private lateinit var replyKeyEdit: EditText
     private lateinit var visionKeyEdit: EditText
+    private lateinit var judgeHeadersEdit: EditText
+    private lateinit var replyHeadersEdit: EditText
+    private lateinit var visionHeadersEdit: EditText
+
+    /** Multi-line `Name: Value` box for one route's custom headers. */
+    private fun headersEdit(value: String) = edit(value, "每行一个，例如 x-opencode-session: sk-xxx").apply {
+        inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        minLines = 2
+    }
 
     private fun providerOf(idx: Int) = when (idx) {
         1 -> Prefs.PROVIDER_TYPESAFE
@@ -575,6 +610,10 @@ class SettingsActivity : AppCompatActivity() {
         /** DeepSeek's official API has no vision model; say so instead of a 400. */
         private const val GUARD_NO_VISION =
             "该接口不支持视觉（DeepSeek 官方没有 image_url），请换 OpenRouter 或通义兼容"
+
+        /** Shown under every custom-header box. */
+        private const val HINT_HEADERS =
+            "原样附加到请求；同名的内建头（如 Authorization）会被覆盖。留空则不加。"
 
         /** One scratch prefs file per test button; never the real config. */
         private const val SCRATCH_JUDGE = "jev_probe_scratch_judge"

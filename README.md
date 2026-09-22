@@ -64,6 +64,12 @@
 
 本项目只读你自己设备上、你自己有权查看的聊天，不针对任何单一平台。
 
+## 本 fork 的改动
+
+- **三路接口都支持自定义请求头**（见上），用于自带鉴权头的服务。
+- 加了 `.github/workflows/build-apk.yml`：Actions → build-apk → Run workflow，挑完在 Artifacts 里下签名好的 release APK；打 `v*` tag 会直接附到 Release。签名密钥存在仓库 secrets（`JEV_KEYSTORE_B64` / `JEV_KEYSTORE_PASSWORD` / `JEV_KEY_ALIAS` / `JEV_KEY_PASSWORD`），不进代码库。
+- `versionName` 1.3.1。签名与原仓库不同，装之前先卸载官方 v1.3。
+
 ## 快速开始
 
 **1. 装包。** 仓库里有签好名的 release 包：[`apk/jev-assistant-v1.3-release.apk`](apk/jev-assistant-v1.3-release.apk)（Android 11+）。各版本安装包也在 [Releases](https://github.com/jev-chat/jev-chat-jarvis/releases)。
@@ -105,6 +111,7 @@ adb install -r apk/jev-assistant-v1.3-release.apk
 - 判断 / 回复 / 视觉三路的地址、密钥、模型分别可填。
 - 内置 OpenRouter、TypeSafe 直连、DeepSeek 官方、通义兼容四套预设，每张卡一键连通测试。
 - 只有一把密钥也能用：回复、视觉留空自动继承判断接口的配置。
+- **自定义请求头（本 fork 新增）**：三张卡各有一个「自定义请求头」框，每行一个 `Name: Value`，原样附加到该路请求，并覆盖同名内建头（`Authorization` 在内）；留空则不加，回复 / 视觉留空会沿用判断接口的。只在自定义头、没有 Bearer 密钥时，也可以把密钥框留空——例如 opencode 一类的服务，填 `x-opencode-session: <值>` 就行。
 - 从旧版本升级时，原来那把密钥会一次性迁移到新的三卡结构。
 
 ### 采集与 OCR

@@ -65,6 +65,16 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         get() = judgeKey
         set(v) { judgeKey = v }
 
+    /**
+     * Extra HTTP headers for the judge route: one `Name: Value` per line.
+     * Sent as-is and applied AFTER the built-in ones, so they override the
+     * `Authorization: Bearer` line — needed by hosts that authenticate with a
+     * header of their own (e.g. `x-opencode-session: ...`). Blank = none.
+     */
+    var judgeHeaders: String
+        get() = sp.getString(K_JUDGE_HEADERS, "") ?: ""
+        set(v) = sp.edit().putString(K_JUDGE_HEADERS, v.trim()).apply()
+
     // ---------------------------------------------------------------- reply
 
     /** OpenAI-compatible base, up to and including `/v1`. */
@@ -81,6 +91,11 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
     var replyModel: String
         get() = sp.getString(K_REPLY_MODEL, DEFAULT_REPLY_MODEL) ?: DEFAULT_REPLY_MODEL
         set(v) = sp.edit().putString(K_REPLY_MODEL, v.trim()).apply()
+
+    /** Extra headers for the reply route, same format as [judgeHeaders]. */
+    var replyHeaders: String
+        get() = sp.getString(K_REPLY_HEADERS, "") ?: ""
+        set(v) = sp.edit().putString(K_REPLY_HEADERS, v.trim()).apply()
 
     // --------------------------------------------------------------- vision
 
@@ -101,6 +116,11 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
     var visionModel: String
         get() = sp.getString(K_VISION_MODEL, DEFAULT_VISION_MODEL) ?: DEFAULT_VISION_MODEL
         set(v) = sp.edit().putString(K_VISION_MODEL, v.trim()).apply()
+
+    /** Extra headers for the vision route, same format as [judgeHeaders]. */
+    var visionHeaders: String
+        get() = sp.getString(K_VISION_HEADERS, "") ?: ""
+        set(v) = sp.edit().putString(K_VISION_HEADERS, v.trim()).apply()
 
     // -------------------------------------------------------- context (D)
 
@@ -193,6 +213,14 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
     /** Vision route key, falling back to reply then judge. */
     fun effectiveVisionKey(): String = visionKey.ifBlank { effectiveReplyKey() }
 
+    /** Reply route headers, falling back to the judge route's (mirrors the key chain). */
+    fun effectiveReplyHeaders(): Map<String, String> =
+        parseHeaders(replyHeaders).ifEmpty { parseHeaders(judgeHeaders) }
+
+    /** Vision route headers, falling back to reply then judge. */
+    fun effectiveVisionHeaders(): Map<String, String> =
+        parseHeaders(visionHeaders).ifEmpty { effectiveReplyHeaders() }
+
     /** Full POST URL for the Jev decisions call, per provider. */
     fun judgeEndpoint(): String {
         val base = judgeBaseUrl.trim().trimEnd('/')
@@ -219,8 +247,11 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         return wl.any { title.contains(it) }
     }
 
-    /** Readiness gate: the judge route is the one that must be configured. */
-    fun hasKey(): Boolean = judgeKey.isNotBlank()
+    /**
+     * Readiness gate for the judge route. A custom header counts as a credential:
+     * some hosts (opencode) carry the session in a header instead of a Bearer key.
+     */
+    fun hasKey(): Boolean = judgeKey.isNotBlank() || parseHeaders(judgeHeaders).isNotEmpty()
 
     companion object {
         private const val TAG = "JEVASSIST"
@@ -234,12 +265,15 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         private const val K_JUDGE_BASE = "judge_base_url"
         private const val K_JUDGE_KEY = "judge_key"
         private const val K_JUDGE_MODEL = "judge_model"
+        private const val K_JUDGE_HEADERS = "judge_headers"
         private const val K_REPLY_BASE = "reply_base_url"
         private const val K_REPLY_KEY = "reply_key"
         private const val K_REPLY_MODEL = "reply_model"
+        private const val K_REPLY_HEADERS = "reply_headers"
         private const val K_VISION_BASE = "vision_base_url"
         private const val K_VISION_KEY = "vision_key"
         private const val K_VISION_MODEL = "vision_model"
+        private const val K_VISION_HEADERS = "vision_headers"
         private const val K_CTX_ENABLED = "context_enabled"
         private const val K_CTX_COUNT = "context_history_count"
         private const val K_AUTO_SUMMARY = "auto_summary"
@@ -282,5 +316,30 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         const val DASHSCOPE_VISION_MODEL = "qwen-vl-max"
 
         const val DEFAULT_REL = "对方是我的伴侣；from=me 的是我发的，from=other 的是对方发的"
+
+        /**
+         * Parse a `Name: Value` per line block into a header map.
+         *
+         * Blank lines and `#` / `//` comments are skipped, as are lines with no
+         * colon and names that are not valid HTTP token characters — a bad name
+         * makes HttpURLConnection throw, which would surface as a mysterious
+         * "请求失败" instead of the real error.
+         */
+        fun parseHeaders(raw: String): Map<String, String> {
+            if (raw.isBlank()) return emptyMap()
+            val out = LinkedHashMap<String, String>()
+            for (line in raw.split('\n')) {
+                val t = line.trim()
+                if (t.isEmpty() || t.startsWith("#") || t.startsWith("//")) continue
+                val i = t.indexOf(':')
+                if (i <= 0) continue
+                val name = t.substring(0, i).trim()
+                val value = t.substring(i + 1).trim()
+                if (name.isEmpty() || value.isEmpty()) continue
+                if (!name.all { it.isLetterOrDigit() || it in "!#$%&'*+-.^_`|~" }) continue
+                out[name] = value
+            }
+            return out
+        }
     }
 }

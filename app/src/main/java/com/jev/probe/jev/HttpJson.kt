@@ -64,8 +64,11 @@ object HttpJson {
                     connectTimeout = 15000
                     readTimeout = 40000
                     doOutput = true
-                    setRequestProperty("Authorization", "Bearer $key")
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    // Blank key = no Bearer line at all. Hosts that authenticate
+                    // with a custom header were otherwise sent `Authorization: Bearer `
+                    // (empty) and rejected it before reading their own header.
+                    if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
                     extraHeaders.forEach { (k, v) -> setRequestProperty(k, v) }
                 }
                 val bytes = body.toString().toByteArray(Charsets.UTF_8)
@@ -113,11 +116,18 @@ object HttpJson {
         } catch (_: Exception) { "" }
     }
 
-    /** OpenRouter wants attribution headers; other hosts reject unknown ones politely. */
-    fun headersFor(url: String): Map<String, String> =
-        if (url.contains("openrouter.ai", ignoreCase = true))
+    /**
+     * OpenRouter wants attribution headers; other hosts reject unknown ones politely.
+     * [custom] comes from the settings box and is merged LAST, so it can override
+     * the attribution headers — and, in [post], the Authorization line as well.
+     */
+    fun headersFor(url: String, custom: Map<String, String> = emptyMap()): Map<String, String> {
+        val builtin = if (url.contains("openrouter.ai", ignoreCase = true))
             mapOf("HTTP-Referer" to "https://jev-assistant.local", "X-Title" to "Jev Assistant")
         else emptyMap()
+        if (custom.isEmpty()) return builtin
+        return LinkedHashMap(builtin).apply { putAll(custom) }
+    }
 
     /** Human-readable transport failures (no key material ever appears here). */
     private fun describe(e: Exception): String {

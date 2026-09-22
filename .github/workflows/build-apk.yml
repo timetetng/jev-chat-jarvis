@@ -1,0 +1,71 @@
+name: build-apk
+
+# 手动跑：仓库 → Actions → build-apk → Run workflow
+# 推 app/** 或本文件也会自动跑；打 tag（v*）时顺便把 APK 附到 Release。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.kts'
+      - '.github/workflows/build-apk.yml'
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # 签名密钥放在仓库 secrets 里，不进代码库：
+      #   JEV_KEYSTORE_B64 / JEV_KEYSTORE_PASSWORD / JEV_KEY_ALIAS / JEV_KEY_PASSWORD
+      # 没配 secret 也能构建，但产物是 app-release-unsigned.apk（装不上）。
+      - name: Prepare release keystore
+        env:
+          KS_B64: ${{ secrets.JEV_KEYSTORE_B64 }}
+          KS_PW: ${{ secrets.JEV_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.JEV_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.JEV_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS_B64" ]; then
+            echo "::warning::未配置 JEV_KEYSTORE_B64，release 包将未签名"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/ks"
+          printf '%s' "$KS_B64" | base64 -d > "$RUNNER_TEMP/ks/jev-release.jks"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/ks/jev-release.jks" "$KS_PW" "$KEY_ALIAS" "$KEY_PW" \
+            > "$RUNNER_TEMP/ks/jev-release.properties"
+          echo "JEV_KEYSTORE_PROPS=$RUNNER_TEMP/ks/jev-release.properties" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: List output
+        run: ls -lh app/build/outputs/apk/release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jev-assistant-release
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Attach APK to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
